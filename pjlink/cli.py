@@ -86,7 +86,11 @@ def cmd_errors(p):
 
 def make_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-p', '--projector')
+    parser.add_argument(
+        '-p', '--projector',
+        help='host:port of the projector to connect to (e.g. 127.0.0.1:4352)',
+    )
+    parser.add_argument('-c', '--config')
 
     sub = parser.add_subparsers(title='command')
 
@@ -111,40 +115,41 @@ def make_parser():
 
     return parser
 
-def resolve_projector(projector):
+def resolve_projector(projector, conf_file):
     password = None
 
-    # host:port
+    # If the projector argument was specified, this takes precedence.
     if projector is not None and ':' in projector:
         host, port = projector.rsplit(':', 1)
         port = int(port)
+        return host, port, password
 
-    # maybe defined in config
-    else:
+    # Otherwise, try reading from a config file.
+    if conf_file is None:
         appdir = appdirs.user_data_dir('pjlink')
         conf_file = path.join(appdir, 'pjlink.conf')
 
-        try:
-            config = ConfigParser({'port': '4352', 'password': ''})
-            with open(conf_file, 'r') as f:
-                config.readfp(f)
+    try:
+        config = ConfigParser({'port': '4352', 'password': ''})
+        with open(conf_file, 'r') as f:
+            config.readfp(f)
 
-            section = projector
-            if projector is None:
-                section = 'default'
+        section = projector
+        if projector is None:
+            section = 'default'
 
-            host = config.get(section, 'host')
-            port = config.getint(section, 'port')
-            password = config.get(section, 'password') or None
+        host = config.get(section, 'host')
+        port = config.getint(section, 'port')
+        password = config.get(section, 'password') or None
 
-        except (NoSectionError, IOError):
-            if projector is None:
-                raise KeyError('No default projector defined in %s' % conf_file)
+    except (NoSectionError, IOError):
+        if projector is None:
+            raise KeyError('No default projector defined in %s' % conf_file)
 
-            # no config file, or no projector defined for this host
-            # thus, treat the projector as a hostname w/o port
-            host = projector
-            port = 4352
+        # no config file, or no projector defined for this host
+        # thus, treat the projector as a hostname w/o port
+        host = projector
+        port = 4352
 
     return host, port, password
 
@@ -160,7 +165,8 @@ def main():
         return
 
     projector = kwargs.pop('projector')
-    host, port, password = resolve_projector(projector)
+    config = kwargs.pop('config')
+    host, port, password = resolve_projector(projector, config)
 
     sock = socket()
     sock.connect((host, port))

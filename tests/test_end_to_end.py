@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
 
 import subprocess
+from tempfile import NamedTemporaryFile
+
+import pytest
 
 from server import FakeProjector, fake_projection_server
 
-def start_cli(addr, *args):
+def start_cli(*args):
     p = subprocess.Popen(
-        ('pjlink', '-p', addr) + args,
+        ('pjlink',) + args,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -28,8 +31,37 @@ def finish_cli(p):
 
 def run_command(fp, *args):
     with fake_projection_server(fp) as addr:
-        p = start_cli(addr, *args)
+        p = start_cli('-p', '%s:%d' % addr, *args)
     return finish_cli(p)
+
+def run_command_with_auth(fp, client_pw, server_pw, salt, *args):
+    with NamedTemporaryFile() as conf_file:
+        with fake_projection_server(fp, (server_pw, salt)) as (host, port):
+            conf_file.write(
+                ('[default]\nhost = %s\nport = %s\npassword = %s\n' % (
+                    host, port, client_pw,
+                )).encode('utf-8')
+            )
+            conf_file.flush()
+
+            p = start_cli('-c', conf_file.name, *args)
+        return finish_cli(p)
+
+def test_auth():
+    fp = FakeProjector()
+
+    # No auth.
+    assert run_command(fp, 'power') == 'off\n'
+    # Correct auth.
+    assert run_command_with_auth(fp, 'foobar', 'foobar', 'ABCDEFGH', 'power') == 'off\n'
+    # Invalid auth.
+    with pytest.raises(ValueError) as e:
+        run_command_with_auth(fp, 'baz', 'foobar', 'ABCDEFGH', 'power')
+    assert e.value.args == (
+        'Process exited with return code 0.\n'
+        'STDERR:\nIncorrect password.\n\n'
+        'STDOUT:\n',
+    )
 
 def test_power():
     fp = FakeProjector()

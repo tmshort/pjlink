@@ -265,7 +265,7 @@ def fake_projection_server(fp, auth=None, hostport=('localhost', 0)):
     server = socketserver.TCPServer(hostport, make_request_handler(fp, auth))
     try:
         host, port = server.server_address
-        yield '%s:%d' % (host, port)
+        yield (host, port)
         server.handle_request()
     finally:
         server.server_close()
