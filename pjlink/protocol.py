@@ -1,7 +1,8 @@
 def read_until(f, term):
+    assert len(term) == 1
     data = []
     c = f.read(1)
-    while c != term:
+    while c and c != term:
         data.append(c)
         c = f.read(1)
     return ''.join(data)

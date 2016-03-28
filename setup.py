@@ -16,7 +16,10 @@ setup(
         'Topic :: Utilities',
     ],
 
-    install_requires=['appdirs'],
+    install_requires=[
+        'appdirs',
+        'six',
+    ],
     packages=find_packages(),
     entry_points = {
         'console_scripts': [
