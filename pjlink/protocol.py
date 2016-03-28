@@ -5,26 +5,28 @@ def read_until(f, term):
     while c and c != term:
         data.append(c)
         c = f.read(1)
-    return ''.join(data)
+    return b''.join(data)
 
-def to_binary(body, param, sep=' '):
+def to_binary(body, param, sep=b' '):
     assert body.isupper()
 
     assert len(body) == 4
     assert len(param) <= 128
 
-    return '%1' + body + sep + param + '\r'
+    return b'%1' + body + sep + param + b'\r'
 
-def parse_response(f, data=''):
+def parse_response(f, data=b''):
     if len(data) < 7:
         data += f.read(2 + 4 + 1 - len(data))
 
-    header = data[0]
-    assert header == '%'
+    header = data[0:1]
+    if header != b'%':
+        raise ValueError('Invalid header in %r' % (data,))
 
-    version = data[1]
+    version = data[1:2]
     # only class 1 is currently defined
-    assert version == '1'
+    if version != b'1':
+        raise ValueError('Invalid version in %r' % (data,))
 
     body = data[2:6]
     # commands are case-insensitive, but let's turn them upper case anyway
@@ -32,18 +34,19 @@ def parse_response(f, data=''):
     # FIXME: AFAIR this takes the current locale into consideration, it shouldn't.
     body = body.upper()
 
-    sep = data[6]
-    assert sep == '='
+    sep = data[6:]
+    if sep != b'=':
+        raise ValueError('Invalid separator in %r' % (data,))
 
-    param = read_until(f, '\r')
+    param = read_until(f, b'\r')
 
     return (body, param)
 
 ERRORS = {
-    'ERR1': 'undefined command',
-    'ERR2': 'out of parameter',
-    'ERR3': 'unavailable time',
-    'ERR4': 'projector failure',
+    b'ERR1': b'undefined command',
+    b'ERR2': b'out of parameter',
+    b'ERR3': b'unavailable time',
+    b'ERR4': b'projector failure',
 }
 
 def send_command(f, req_body, req_param):
