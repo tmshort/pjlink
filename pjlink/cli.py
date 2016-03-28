@@ -1,12 +1,14 @@
 import argparse
-from ConfigParser import (
-    NoSectionError,
-    SafeConfigParser as ConfigParser
-)
 from getpass import getpass
 from os import path
 from socket import socket
 import sys
+
+from six import print_, PY2
+from six.moves.configparser import (
+    NoSectionError,
+    SafeConfigParser as ConfigParser
+)
 
 import appdirs
 
@@ -14,27 +16,31 @@ from pjlink import Projector
 from pjlink import projector
 from pjlink.cliutils import make_command
 
+if PY2:
+    import codecs
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout)
+
 def cmd_power(p, state=None):
     if state is None:
-        print p.get_power()
+        print(p.get_power())
     else:
         p.set_power(state)
 
 def cmd_input(p, source, number):
     if source is None:
         source, number = p.get_input()
-        print source, number
+        print('%s %s' % (source, number))
     else:
         p.set_input(source, number)
 
 def cmd_inputs(p):
     for source, number in p.get_inputs():
-        print '%s-%s' % (source, number)
+        print('%s-%s' % (source, number))
 
 def cmd_mute_state(p):
     video, audio = p.get_mute()
-    print 'video:', 'muted' if video else 'unmuted'
-    print 'audio:', 'muted' if audio else 'unmuted'
+    print('video: %s' % ('muted' if video else 'unmuted'))
+    print('audio: %s' % ('muted' if audio else 'unmuted'))
 
 def cmd_mute(p, what):
     if what is None:
@@ -58,25 +64,25 @@ def cmd_unmute(p, what):
 
 def cmd_info(p):
     info = [
-        ('Name', p.get_name().encode('utf-8')),
+        ('Name', p.get_name()),
         ('Manufacturer', p.get_manufacturer()),
         ('Product Name', p.get_product_name()),
         ('Other Info', p.get_other_info())
     ]
     for key, value in info:
-        print '%s: %s' % (key, value)
+        print_(u'%s: %s' % (key, value))
 
 def cmd_lamps(p):
     for i, (time, state) in enumerate(p.get_lamps(), 1):
-        print 'Lamp %d: %s (%d hours)' % (
+        print('Lamp %d: %s (%d hours)' % (
             i,
             'on' if state else 'off',
             time,
-        )
+        ))
 
 def cmd_errors(p):
-    for what, state in p.get_errors().items():
-        print '%s: %s' % (what, state)
+    for what, state in sorted(p.get_errors().items()):
+        print('%s: %s' % (what, state))
 
 def make_parser():
     parser = argparse.ArgumentParser()
@@ -147,14 +153,18 @@ def main():
     args = parser.parse_args()
 
     kwargs = dict(args._get_kwargs())
-    func = kwargs.pop('__func__')
+    func = kwargs.pop('__func__', None)
+    # If no command was selected, show usage and quit.
+    if not func:
+        parser.print_help()
+        return
 
     projector = kwargs.pop('projector')
     host, port, password = resolve_projector(projector)
 
     sock = socket()
     sock.connect((host, port))
-    f = sock.makefile()
+    f = sock.makefile('rwb')
 
     if password:
         get_password = lambda: password
@@ -164,7 +174,8 @@ def main():
     proj = Projector(f)
     rv = proj.authenticate(get_password)
     if rv is False:
-        print>>sys.stderr, 'Incorrect password.'
+        sys.stderr.write('Incorrect password.')
+        sys.stderr.flush()
         return
 
     func(proj, **kwargs)

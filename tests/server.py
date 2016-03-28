@@ -1,11 +1,17 @@
+from contextlib import contextmanager
 import hashlib
+import socket
+
+from six.moves import socketserver
 
 from pjlink import projector
+
+MAX_PACKET_SIZE = 1024
 
 class FakeProjector(object):
     """Fake implementation of a PJLink projector."""
 
-    def __init__(self, auth=None):
+    def __init__(self):
         self.name = 'FakeProjector'
         self.manufacturer = 'flowblok'
         self.product_name = 'python pjlink'
@@ -40,98 +46,6 @@ class FakeProjector(object):
             'filter': 'ok',
             'other': 'ok',
         }
-
-        self.stdin = ''
-
-        self.lockdown = False
-
-        if auth is False:
-            # Skip the authentication stage.
-            self.auth = None
-            self.stdout = b''
-
-        elif auth is None:
-            # No password.
-            self.auth = None
-            self.stdout = b'PJLINK 0\r'
-
-        else:
-            # Auth is a tuple of (password, salt).
-            password, salt = auth
-            assert len(salt) == 8
-
-            data = (salt + password).encode('utf-8')
-            self.auth = hashlib.md5(data).hexdigest()
-            self.stdout = ('PJLINK 1 ' + salt + '\r').encode('utf-8')
-
-    @property
-    def stdio_clean(self):
-        return not self.stdin and not self.stdout
-
-    # This class functions as a file-like object.
-
-    def write(self, data):
-        # Write data to stdin.
-        self.stdin += data.decode('utf-8')
-        # Note that in order to expose bugs, we don't process it yet!
-        # Instead, we wait until an explicit flush(), or a blocking read().
-
-    def read(self, n):
-        # If we don't have enough data to read, try processing stdin.
-        if len(self.stdout) < n:
-            self.flush()
-        # Rather than returning less than the requested amount of data
-        # (which would be allowable), throw an error to help debug.
-        assert len(self.stdout) >= n, 'Caller tried to read() too much.'
-        result, self.stdout = self.stdout[:n], self.stdout[n:]
-        return result
-
-    def flush(self):
-        # If we have authentication data, it means the client hasn't authed yet.
-        if self.auth:
-            # The MD5 hex digest is 32 characters long.
-            if len(self.stdin) < 32:
-                return
-            # Pull it off stdin.
-            data, self.stdin = self.stdin[:32], self.stdin[32:]
-            # If it's wrong, put the projector into lockdown mode,
-            # otherwise, start processing commands.
-            if data != self.auth:
-                self.lockdown = True
-                # This isn't quite accurate with what I've observed in reality:
-                # it gets sent back after the first command is sent.
-                self.stdout += b'PJLINK ERRA\r'
-            # Clear auth, so we stop checking the password.
-            self.auth = None
-
-        # If we're in lockdown mode, don't process commands.
-        if self.lockdown:
-            return
-
-        while '\r' in self.stdin:
-            command, self.stdin = self.stdin.split('\r', 1)
-            assert command.startswith('%1') and ' ' in command
-            body, param = command[2:].split(' ', 1)
-            assert len(body) == 4
-
-            if body == 'POWR':
-                response = self.handle_power(param)
-            elif body == 'INPT':
-                response = self.handle_input(param)
-            elif body == 'AVMT':
-                response = self.handle_mute(param)
-            elif body == 'ERST':
-                response = self.handle_errors(param)
-            elif body == 'LAMP':
-                response = self.handle_lamps(param)
-            elif body == 'INST':
-                response = self.handle_inputs(param)
-            elif body in ('NAME', 'INF1', 'INF2', 'INFO'):
-                response = self.handle_info(body, param)
-            else:
-                response = 'ERR1'
-
-            self.stdout += ('%1' + body + '=' + response + '\r').encode('utf-8')
 
     def handle_power(self, param):
         if param == '?':
@@ -227,3 +141,131 @@ class FakeProjector(object):
         else:
             assert body == 'INFO'
             return self.other_info
+
+class FakeProjectorSession(object):
+    def __init__(self, fp, auth=None):
+        self.fp = fp
+
+        self.stdin = ''
+
+        self.lockdown = False
+
+        if auth is False:
+            # Skip the authentication stage.
+            self.auth = None
+            self.stdout = b''
+
+        elif auth is None:
+            # No password.
+            self.auth = None
+            self.stdout = b'PJLINK 0\r'
+
+        else:
+            # Auth is a tuple of (password, salt).
+            password, salt = auth
+            assert len(salt) == 8
+
+            data = (salt + password).encode('utf-8')
+            self.auth = hashlib.md5(data).hexdigest()
+            self.stdout = ('PJLINK 1 ' + salt + '\r').encode('utf-8')
+
+    @property
+    def stdio_clean(self):
+        return not self.stdin and not self.stdout
+
+    # This class functions as a file-like object.
+
+    def write(self, data):
+        # Write data to stdin.
+        self.stdin += data.decode('utf-8')
+        # Note that in order to expose bugs, we don't process it yet!
+        # Instead, we wait until an explicit flush(), or a blocking read().
+
+    def read(self, n=None):
+        if n is None:
+            n = len(self.stdout)
+
+        # If we don't have enough data to read, try processing stdin.
+        if len(self.stdout) < n:
+            self.flush()
+        # Rather than returning less than the requested amount of data
+        # (which would be allowable), throw an error to help debug.
+        assert len(self.stdout) >= n, 'Caller tried to read() too much.'
+        result, self.stdout = self.stdout[:n], self.stdout[n:]
+        return result
+
+    def flush(self):
+        # If we have authentication data, it means the client hasn't authed yet.
+        if self.auth:
+            # The MD5 hex digest is 32 characters long.
+            if len(self.stdin) < 32:
+                return
+            # Pull it off stdin.
+            data, self.stdin = self.stdin[:32], self.stdin[32:]
+            # If it's wrong, put the projector into lockdown mode,
+            # otherwise, start processing commands.
+            if data != self.auth:
+                self.lockdown = True
+                # This isn't quite accurate with what I've observed in reality:
+                # it gets sent back after the first command is sent.
+                self.stdout += b'PJLINK ERRA\r'
+            # Clear auth, so we stop checking the password.
+            self.auth = None
+
+        # If we're in lockdown mode, don't process commands.
+        if self.lockdown:
+            return
+
+        while '\r' in self.stdin:
+            command, self.stdin = self.stdin.split('\r', 1)
+            assert command.startswith('%1') and ' ' in command
+            body, param = command[2:].split(' ', 1)
+            assert len(body) == 4
+
+            if body == 'POWR':
+                response = self.fp.handle_power(param)
+            elif body == 'INPT':
+                response = self.fp.handle_input(param)
+            elif body == 'AVMT':
+                response = self.fp.handle_mute(param)
+            elif body == 'ERST':
+                response = self.fp.handle_errors(param)
+            elif body == 'LAMP':
+                response = self.fp.handle_lamps(param)
+            elif body == 'INST':
+                response = self.fp.handle_inputs(param)
+            elif body in ('NAME', 'INF1', 'INF2', 'INFO'):
+                response = self.fp.handle_info(body, param)
+            else:
+                response = 'ERR1'
+
+            self.stdout += ('%1' + body + '=' + response + '\r').encode('utf-8')
+
+def make_request_handler(fp, auth):
+    class Handler(socketserver.BaseRequestHandler):
+        def handle(self):
+            fps = FakeProjectorSession(fp, auth=auth)
+
+            # This is only mildly hacky, in that we know communication will
+            # strictly alternate.
+            while True:
+                if fps.stdout:
+                    self.request.sendall(fps.read())
+
+                data = self.request.recv(MAX_PACKET_SIZE)
+                if not data:
+                    break
+                fps.write(data)
+                fps.flush()
+
+    return Handler
+
+@contextmanager
+def fake_projection_server(fp, auth=None, hostport=('localhost', 0)):
+    server = socketserver.TCPServer(hostport, make_request_handler(fp, auth))
+    try:
+        host, port = server.server_address
+        yield '%s:%d' % (host, port)
+        server.handle_request()
+    finally:
+        server.server_close()

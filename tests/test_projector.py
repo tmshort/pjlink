@@ -4,45 +4,45 @@ import pytest
 
 from pjlink.projector import MUTE_AUDIO, MUTE_VIDEO, Projector, ProjectorError
 
-from server import FakeProjector
+from server import FakeProjector, FakeProjectorSession
+
+def make_fakes(auth=None):
+    fp = FakeProjector()
+    fps = FakeProjectorSession(fp, auth=auth)
+    p = Projector(fps)
+    return fp, fps, p
 
 def test_authenticate_none():
-    # Not a valid state, but just for aiding other testing:
-    fp = FakeProjector(auth=False)
-    assert fp.stdio_clean and not fp.lockdown
-
     # No authentication:
-    fp = FakeProjector()
-    assert Projector(fp).authenticate(None) is None
-    assert fp.stdio_clean and not fp.lockdown
+    fp, fps, p = make_fakes()
+    assert p.authenticate(None) is None
+    assert fps.stdio_clean and not fps.lockdown
 
     # Unauthenticated:
-    fp = FakeProjector(auth=('foobar', 'ABCDEFGH'))
-    Projector(fp)
-    assert not fp.stdio_clean and not fp.lockdown and fp.auth
+    fp, fps, p = make_fakes(auth=('foobar', 'ABCDEFGH'))
+    assert not fps.stdio_clean and not fps.lockdown and fps.auth
 
 def test_authenticate_correct():
-    fp = FakeProjector(auth=('foobar', 'ABCDEFGH'))
-    assert Projector(fp).authenticate(lambda: 'foobar') is True
-    assert fp.stdio_clean and not fp.lockdown
+    fp, fps, p = make_fakes(auth=('foobar', 'ABCDEFGH'))
+    assert p.authenticate(lambda: 'foobar') is True
+    assert fps.stdio_clean and not fps.lockdown
 
-    fp = FakeProjector(auth=('foobar', 'QWERTYUI'))
-    assert Projector(fp).authenticate(lambda: 'foobar') is True
-    assert fp.stdio_clean and not fp.lockdown
+    fp, fps, p = make_fakes(auth=('foobar', 'QWERTYUI'))
+    assert p.authenticate(lambda: 'foobar') is True
+    assert fps.stdio_clean and not fps.lockdown
 
-    fp = FakeProjector(auth=('', 'AAAAAAAA'))
-    assert Projector(fp).authenticate(lambda: '') is True
-    assert fp.stdio_clean and not fp.lockdown
+    fp, fps, p = make_fakes(auth=('', 'AAAAAAAA'))
+    assert p.authenticate(lambda: '') is True
+    assert fps.stdio_clean and not fps.lockdown
 
 def test_authenticate_incorrect():
     # Incorrect password:
-    fp = FakeProjector(auth=('bazzz', 'ABCDEFGH'))
-    assert Projector(fp).authenticate(lambda: 'foobar') is False
-    assert fp.lockdown
+    fp, fps, p = make_fakes(auth=('bazzz', 'ABCDEFGH'))
+    assert p.authenticate(lambda: 'foobar') is False
+    assert fps.lockdown
 
 def test_power():
-    fp = FakeProjector(auth=False)
-    p = Projector(fp)
+    fp, fps, p = make_fakes(auth=False)
 
     # Projector starts off:
     assert p.get_power() == fp.power == 'off'
@@ -75,8 +75,7 @@ def test_power():
     assert error.value.args == (b'out of parameter',)
 
 def test_input_valid():
-    fp = FakeProjector(auth=False)
-    p = Projector(fp)
+    fp, fps, p = make_fakes(auth=False)
 
     # Projector starts in RGB1:
     assert p.get_input() == fp.input == ('RGB', 1)
@@ -89,8 +88,7 @@ def test_input_valid():
             assert p.get_input() == fp.input == (source, number)
 
 def test_input_invalid():
-    fp = FakeProjector(auth=False)
-    p = Projector(fp)
+    fp, fps, p = make_fakes(auth=False)
 
     assert p.get_input() == fp.input == ('RGB', 1)
 
@@ -110,8 +108,7 @@ def test_input_invalid():
         p.set_input('rgb', 1)
 
 def test_mute_valid():
-    fp = FakeProjector(auth=False)
-    p = Projector(fp)
+    fp, fps, p = make_fakes(auth=False)
 
     assert p.get_mute() == (fp.mute_video, fp.mute_audio) == (False, False)
 
@@ -142,8 +139,7 @@ def test_mute_valid():
     assert p.get_mute() == (fp.mute_video, fp.mute_audio) == (False, True)
 
 def test_errors():
-    fp = FakeProjector(auth=False)
-    p = Projector(fp)
+    fp, fps, p = make_fakes(auth=False)
 
     # Manually test some simple cases:
     assert p.get_errors() == fp.errors
@@ -163,8 +159,7 @@ def test_errors():
         assert p.get_errors() == fp.errors
 
 def test_lamps():
-    fp = FakeProjector(auth=False)
-    p = Projector(fp)
+    fp, fps, p = make_fakes(auth=False)
 
     assert p.get_lamps() == [(42, False)]
 
@@ -184,8 +179,7 @@ def test_lamps():
     assert p.get_lamps() == fp.lamps
 
 def test_inputs_valid():
-    fp = FakeProjector(auth=False)
-    p = Projector(fp)
+    fp, fps, p = make_fakes(auth=False)
 
     assert p.get_inputs() == fp.inputs
 
@@ -193,8 +187,7 @@ def test_inputs_valid():
     assert p.get_inputs() == fp.inputs
 
 def test_inputs_invalid():
-    fp = FakeProjector(auth=False)
-    p = Projector(fp)
+    fp, fps, p = make_fakes(auth=False)
 
     with pytest.raises(AssertionError):
         fp.inputs = [('RGB', 0)]
@@ -205,8 +198,7 @@ def test_inputs_invalid():
         assert p.get_inputs() == fp.inputs
 
 def test_info():
-    fp = FakeProjector(auth=False)
-    p = Projector(fp)
+    fp, fps, p = make_fakes(auth=False)
 
     assert p.get_name() == 'FakeProjector'
     assert p.get_manufacturer() == 'flowblok'
