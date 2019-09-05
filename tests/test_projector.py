@@ -6,9 +6,9 @@ from pjlink.projector import MUTE_AUDIO, MUTE_VIDEO, Projector, ProjectorError
 
 from server import FakeProjector, FakeProjectorSession
 
-def make_fakes(auth=None):
+def make_fakes(auth=None, small_pjlink=False):
     fp = FakeProjector()
-    fps = FakeProjectorSession(fp, auth=auth)
+    fps = FakeProjectorSession(fp, auth=auth, small_pjlink=small_pjlink)
     p = Projector(fps)
     return fp, fps, p
 
@@ -38,6 +38,35 @@ def test_authenticate_correct():
 def test_authenticate_incorrect():
     # Incorrect password:
     fp, fps, p = make_fakes(auth=('bazzz', 'ABCDEFGH'))
+    assert p.authenticate(lambda: 'foobar') is False
+    assert fps.lockdown
+
+def test_authenticate_small_letters_none():
+    # No authentication:
+    fp, fps, p = make_fakes(small_pjlink=True)
+    assert p.authenticate(None) is None
+    assert fps.stdio_clean and not fps.lockdown
+
+    # Unauthenticated:
+    fp, fps, p = make_fakes(auth=('foobar', 'ABCDEFGH'), small_pjlink=True)
+    assert not fps.stdio_clean and not fps.lockdown and fps.auth
+
+def test_authenticate_small_letters_correct():
+    fp, fps, p = make_fakes(auth=('foobar', 'ABCDEFGH'), small_pjlink=True)
+    assert p.authenticate(lambda: 'foobar') is True
+    assert fps.stdio_clean and not fps.lockdown
+
+    fp, fps, p = make_fakes(auth=('foobar', 'QWERTYUI'), small_pjlink=True)
+    assert p.authenticate(lambda: 'foobar') is True
+    assert fps.stdio_clean and not fps.lockdown
+
+    fp, fps, p = make_fakes(auth=('', 'AAAAAAAA'), small_pjlink=True)
+    assert p.authenticate(lambda: '') is True
+    assert fps.stdio_clean and not fps.lockdown
+
+def test_authenticate_small_letters_incorrect():
+    # Incorrect password:
+    fp, fps, p = make_fakes(auth=('bazzz', 'ABCDEFGH'), small_pjlink=True)
     assert p.authenticate(lambda: 'foobar') is False
     assert fps.lockdown
 

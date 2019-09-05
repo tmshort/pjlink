@@ -143,7 +143,7 @@ class FakeProjector(object):
             return self.other_info
 
 class FakeProjectorSession(object):
-    def __init__(self, fp, auth=None):
+    def __init__(self, fp, auth=None, small_pjlink=False):
         self.fp = fp
 
         self.stdin = ''
@@ -158,7 +158,11 @@ class FakeProjectorSession(object):
         elif auth is None:
             # No password.
             self.auth = None
-            self.stdout = b'PJLINK 0\r'
+            if not small_pjlink:
+              self.stdout = b'PJLINK 0\r'
+            else:
+              # Technically not to pjlink spec, but observed in reality
+              self.stdout = b'pjlink 0\r'
 
         else:
             # Auth is a tuple of (password, salt).
@@ -167,7 +171,11 @@ class FakeProjectorSession(object):
 
             data = (salt + password).encode('utf-8')
             self.auth = hashlib.md5(data).hexdigest()
-            self.stdout = ('PJLINK 1 ' + salt + '\r').encode('utf-8')
+            if not small_pjlink:
+              self.stdout = ('PJLINK 1 ' + salt + '\r').encode('utf-8')
+            else:
+              # Technically not to pjlink spec, but observed in reality
+              self.stdout = ('pjlink 1 ' + salt + '\r').encode('utf-8')
 
     @property
     def stdio_clean(self):
