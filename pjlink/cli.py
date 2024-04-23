@@ -3,11 +3,12 @@ from getpass import getpass
 from os import path
 from socket import socket
 import sys
+import textwrap
 
 from six import print_, PY2
 from six.moves.configparser import (
     NoSectionError,
-    SafeConfigParser as ConfigParser
+    ConfigParser
 )
 
 import appdirs
@@ -84,8 +85,24 @@ def cmd_errors(p):
     for what, state in sorted(p.get_errors().items()):
         print('%s: %s' % (what, state))
 
+
 def make_parser():
-    parser = argparse.ArgumentParser()
+    ad = appdirs.user_data_dir('pjlink')
+    cf = path.join(ad, 'pjlink.conf')
+
+    parser = argparse.ArgumentParser(description="The pjlink utility controls and reports the status of projectors.",
+                                     formatter_class=argparse.RawDescriptionHelpFormatter,
+                                     epilog=textwrap.dedent(f"""\
+                                     Default config file is '{cf}'.
+
+                                     Example config file:
+                                        [default]
+                                        host=192.168.100
+                                        port=4352
+                                        password=panasonic
+
+                                     See https://blog.flowblok.id.au/2012-11/controlling-projectors-with-pjlink.html for additional information
+                                     """))
     parser.add_argument(
         '-p', '--projector',
         help='host:port of the projector to connect to (e.g. 127.0.0.1:4352)',
@@ -112,6 +129,7 @@ def make_parser():
     make_command(sub, 'info', cmd_info)
     make_command(sub, 'lamps', cmd_lamps)
     make_command(sub, 'errors', cmd_errors)
+    make_command(sub, 'help', None)
 
     return parser
 
@@ -163,7 +181,6 @@ def main():
     if not func:
         parser.print_help()
         return
-
     projector = kwargs.pop('projector')
     config = kwargs.pop('config')
     host, port, password = resolve_projector(projector, config)
